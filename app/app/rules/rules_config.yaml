@@ -1,0 +1,461 @@
+rules:
+  - id: R-01
+    title: Client Verification Outcome Required for Active Clients
+    category: ART
+    severity: Data Quality
+    enabled: true
+    columns:
+      - current_art_status
+      - client_verification_outcome
+    description: Every client whose Current ART Status is Active or Active Restart must
+      have a valid Client Verification Outcome recorded.
+    condition: current_art_status IN (Active, Active Restart) AND client_verification_outcome IS NULL OR EMPTY
+    action: Flag record if Active/Active Restart client has no Client Verification Outcome
+
+  - id: R-02
+    title: TB Screening Required for Recent Drug Pickup
+    category: Clinical
+    severity: Data Quality
+    enabled: true
+    columns:
+      - last_pickup_date
+      - tb_screening_date
+    description: A TB screening date is required for any patient whose last drug pickup
+      was within the current semiannual period. Periods are Oct–Mar and Apr–Sep.
+      A screening date AFTER last_pickup_date is valid (sick-visit screening) and must NOT be flagged.
+    condition: last_pickup_date within current semiannual period AND tb_screening_date IS NULL
+    action: Flag record if pickup was within the current semiannual period and TB screening date is missing
+
+  - id: R-03
+    title: TB Sample Collection Required for Presumptive TB
+    category: TB
+    severity: Service Gap/Data Quality
+    enabled: true
+    columns:
+      - tb_status
+      - tb_sample_collection_date
+      - current_art_status
+    description: When an Active or Active Restart client has TB Status = Presumptive TB,
+      a TB sample collection date is mandatory.
+    condition: current_art_status IN (Active, Active Restart) AND tb_status ILIKE '%Presumptive%' AND tb_sample_collection_date IS NULL
+    action: Flag Active/Active Restart client with Presumptive TB and missing sample collection date
+
+  - id: R-04
+    title: TB Treatment Start Date Required for Positive Result
+    category: TB
+    severity: Service Gap/Data Quality
+    enabled: true
+    columns:
+      - tb_diagnostic_result
+      - tb_treatment_start_date
+      - current_art_status
+    description: Active/Active Restart clients with a positive or suggestive TB diagnostic
+      result must have a TB Treatment Start Date recorded.
+    condition: current_art_status IN (Active, Active Restart) AND tb_diagnostic_result is positive/suggestive AND tb_treatment_start_date IS NULL
+    action: Flag Active/Active Restart client with positive TB result and missing treatment start date
+
+  - id: R-05
+    title: TPT Start Date Required for Negative TB Results
+    category: TB
+    severity: Service Gap/Data Quality
+    enabled: true
+    columns:
+      - tb_diagnostic_result
+      - tpt_start_date
+      - current_art_status
+    description: Active/Active Restart clients with Negative, MTB Not Detected, or X-Ray Not Suggestive
+      TB result must have a TPT Start Date.
+    condition: current_art_status IN (Active, Active Restart) AND tb_diagnostic_result IN (Negative, MTB Not Detected, X-Ray Not Suggestive) AND tpt_start_date IS NULL
+    action: Flag Active/Active Restart client with Negative TB result and missing TPT Start Date
+
+  - id: R-06
+    title: TPT Start Date Required — No Signs or Symptoms
+    category: TB
+    severity: Service Gap/Data Quality
+    enabled: true
+    columns:
+      - tb_status
+      - tpt_start_date
+      - current_art_status
+    description: Active/Active Restart clients with TB Status containing "No sign" or
+      "No symptom" must have a TPT Start Date.
+    condition: current_art_status IN (Active, Active Restart) AND (tb_status ILIKE 'No sign%' OR tb_status ILIKE 'No symptom%') AND tpt_start_date IS NULL
+    action: Flag Active/Active Restart client with No Signs/Symptoms TB status and missing TPT Start Date
+
+  - id: R-07
+    title: Unsppressed Client Without EAC Commencement
+    category: Viral Load & EAC
+    severity: Service Gap
+    enabled: true
+    columns:
+      - current_art_status
+      - current_viral_load
+      - eac_commencement_date
+    description: Active/Active Restart clients with Current Viral Load >= 1,000 copies/mL
+      must have an EAC Commencement Date.
+    condition: current_art_status IN (Active, Active Restart) AND current_viral_load >= 1000 AND eac_commencement_date IS NULL
+    action: Flag Active/Active Restart client with VL >= 1000 and missing EAC commencement date
+
+  - id: R-08
+    title: Biometric Enrollment Required for All Active ART Clients
+    category: Biometrics
+    severity: Service Gap
+    enabled: true
+    columns:
+      - current_art_status
+      - biometrics_enrolled_date
+      - age
+    description: All Active/Active Restart clients aged 5+ must have a Biometric Enrollment Date.
+    condition: current_art_status IN (Active, Active Restart) AND biometrics_enrolled_date IS NULL AND age >= 5
+    action: Flag Active/Active Restart client (age >= 5) with missing Biometric Enrollment Date
+
+  - id: R-09
+    title: Case Manager Required for Active Clients
+    category: Case Management
+    severity: Data Quality
+    enabled: true
+    columns:
+      - current_art_status
+      - case_manager
+    description: Every Active/Active Restart client must be assigned to a Case Manager.
+    condition: current_art_status IN (Active, Active Restart) AND case_manager IS NULL
+    action: Flag Active/Active Restart client missing Case Manager
+
+  - id: R-10
+    title: Date of Birth Must Not Be After ART Start or Last Pickup Date
+    category: Data Integrity
+    severity: Data Quality
+    enabled: true
+    columns:
+      - current_art_status
+      - dob
+      - art_start_date
+      - last_pickup_date
+    description: For Active/Active Restart clients, Date of Birth must not be after ART Start Date or Last Pickup Date.
+    condition: current_art_status IN (Active, Active Restart) AND (dob > art_start_date OR dob > last_pickup_date)
+    action: Flag Active/Active Restart client where DOB is after ART Start Date or Last Pickup Date
+
+  - id: R-11
+    title: Last Pickup Date Must Not Be Earlier Than Registration, Enrollment, or ART Start Date
+    category: Data Integrity
+    severity: Data Quality
+    enabled: true
+    columns:
+      - current_art_status
+      - last_pickup_date
+      - date_of_registration
+      - enrollment_date
+      - art_start_date
+    description: For Active/Active Restart clients, Last Pickup Date must not be earlier than
+      Date of Registration, Enrollment Date, or ART Start Date.
+    condition: current_art_status IN (Active, Active Restart) AND last_pickup_date < (date_of_registration OR enrollment_date OR art_start_date)
+    action: Flag Active/Active Restart client where Last Pickup Date is earlier than registration, enrollment, or ART start
+
+  - id: R-12
+    title: TB Treatment Completion Date Must Be After Start Date
+    category: Data Integrity
+    severity: Data Quality
+    enabled: true
+    columns:
+      - tb_treatment_completion_date
+      - tb_treatment_start_date
+      - tb_type
+    description: TB Treatment Completion Date must be on or after TB Treatment Start Date.
+      Only rows where both dates are present are evaluated.
+      Retreatment clients (tb_type = Retreatment) are excluded because their treatment
+      episodes can span dates that pre-date the current episode start.
+    condition: tb_treatment_completion_date < tb_treatment_start_date AND tb_type != 'Retreatment'
+    action: Flag record where TB Treatment Completion Date is earlier than TB Treatment Start Date (excludes Retreatment)
+
+  - id: R-13
+    title: TPT Completion Date Must Be After TPT Start Date
+    category: Data Integrity
+    severity: Data Quality
+    enabled: true
+    columns:
+      - tpt_completion_date
+      - current_art_status
+      - tpt_start_date
+    description: For Active/Active Restart clients where both dates exist, TPT Completion
+      Date must be on or after TPT Start Date.
+    condition: current_art_status IN (Active, Active Restart) AND tpt_completion_date < tpt_start_date
+    action: Flag record where TPT Completion Date is earlier than TPT Start Date
+
+  - id: R-14
+    title: Last CD4 Count Must Be a Valid Value
+    category: Clinical Values
+    severity: Data Quality
+    enabled: true
+    columns:
+      - current_art_status
+      - last_cd4_count
+    description: Last CD4 Count must be numeric 0–3,000 or one of the accepted sentinel
+      strings (>=200, <=200, <200, >200). Free text values are invalid. NULL values are not flagged.
+    condition: current_art_status IN (Active, Active Restart) AND last_cd4_count NOT IN (numeric 0-3000, '>=200', '<=200', '<200', '>200') AND NOT NULL
+    action: Flag Active/Active Restart client with invalid CD4 count value
+
+  - id: R-15
+    title: Cause of Death Required When Status Is Died
+    category: Clinical Values
+    severity: Data Quality
+    enabled: true
+    columns:
+      - current_art_status
+      - cause_of_death
+      - date_current_art_status
+    description: When Current ART Status is Died, Cause of Death must be populated.
+      Only records whose date_current_art_status falls within the current Nigerian
+      fiscal year (Oct 1 – Sep 30) are evaluated.
+    condition: current_art_status ILIKE 'Died' AND cause_of_death IS NULL AND date_current_art_status IN current_fy
+    action: Flag record where status is Died and Cause of Death is missing (current FY only)
+
+  - id: R-16
+    title: Sex Required for Active Clients
+    category: Demographics
+    severity: Data Quality
+    enabled: true
+    columns:
+      - current_art_status
+      - sex
+    description: Sex must not be blank for Active/Active Restart clients.
+    condition: current_art_status IN (Active, Active Restart) AND sex IS NULL OR EMPTY
+    action: Flag Active/Active Restart client where Sex is blank
+
+  - id: R-17
+    title: Pregnancy Status Only Applies to Female Clients
+    category: Demographics
+    severity: Data Quality
+    enabled: true
+    columns:
+      - current_art_status
+      - sex
+      - pregnancy_status
+    description: Pregnancy Status should only be populated when Sex is Female for Active/Active Restart clients.
+    condition: current_art_status IN (Active, Active Restart) AND pregnancy_status IS NOT NULL AND sex != Female
+    action: Flag pregnancy status recorded for non-female Active/Active Restart clients
+
+  - id: R-18
+    title: Date of Birth and Age Required for Active Clients
+    category: Demographics
+    severity: Data Quality
+    enabled: true
+    columns:
+      - current_art_status
+      - dob
+      - age
+    description: Date of Birth and Age must not be blank for Active/Active Restart clients.
+    condition: current_art_status IN (Active, Active Restart) AND (dob IS NULL OR age IS NULL OR EMPTY)
+    action: Flag Active/Active Restart client where Date of Birth or Age is blank
+
+  - id: R-19
+    title: ART Start Date Must Not Be Earlier Than Date of Registration or Enrollment
+    category: Data Integrity
+    severity: Data Quality
+    enabled: true
+    columns:
+      - current_art_status
+      - art_start_date
+      - date_of_registration
+      - enrollment_date
+      - entry_point
+    description: ART Start Date must not be earlier than Date of Registration or Enrollment
+      Date for Active/Active Restart clients. Transfer-in clients are excluded because
+      their ART may predate the current facility registration.
+    condition: current_art_status IN (Active, Active Restart) AND art_start_date < (date_of_registration OR enrollment_date) AND entry_point != 'Transfer-in'
+    action: Flag Active/Active Restart clients (non-Transfer-in) where ART Start Date is earlier than registration or enrollment
+
+  - id: R-20
+    title: Last Pickup Date and Months of ARV Refill Required for Active Clients
+    category: ART
+    severity: Data Quality
+    enabled: true
+    columns:
+      - current_art_status
+      - last_pickup_date
+      - months_arv_refill
+    description: Last Pickup Date and Months of ARV Refill must not be blank for Active/Active Restart clients.
+    condition: current_art_status IN (Active, Active Restart) AND (last_pickup_date IS NULL OR months_arv_refill IS NULL OR EMPTY)
+    action: Flag Active/Active Restart clients missing Last Pickup Date or Months of ARV Refill
+
+  - id: R-21
+    title: Current Viral Load Must Be Valid
+    category: Viral Load
+    severity: Data Quality
+    enabled: true
+    columns:
+      - current_art_status
+      - current_viral_load
+    description: Current Viral Load must be a non-negative integer or decimal value.
+      Comma-formatted numbers (e.g. 6,5130 or 2,367) are accepted as valid.
+      Text entries such as TND, Tiertermin, or Target Not Detected are not accepted.
+      NULL / blank values are not flagged by this rule.
+      Only Active/Active Restart clients with a present but invalid VL are flagged.
+    condition: current_art_status IN (Active, Active Restart) AND current_viral_load IS NOT NULL AND current_viral_load is not a non-negative number
+    action: Flag Active/Active Restart clients whose Current Viral Load is present but not a non-negative integer or decimal
+
+  - id: R-22
+    title: Current ART Status Required for All Records
+    category: ART
+    severity: Data Quality
+    enabled: true
+    columns:
+      - current_art_status
+    description: Current ART Status should not be blank for any record.
+    condition: current_art_status IS NULL OR EMPTY
+    action: Flag records where Current ART Status is blank
+
+  - id: R-23
+    title: Previous ART Status Date Must Not Be After Current ART Status Date
+    category: Data Integrity
+    severity: Data Quality
+    enabled: true
+    columns:
+      - date_current_art_status
+      - confirmed_date_previous_art_status
+    description: Confirmed Date of Previous ART Status must not be greater than Date of Current ART Status.
+      Only records whose date_current_art_status falls within the current Nigerian
+      fiscal year (Oct 1 – Sep 30) are evaluated.
+    condition: confirmed_date_previous_art_status > date_current_art_status AND date_current_art_status IN current_fy
+    action: Flag records where previous ART status confirmed date is after current ART status date (current FY only)
+
+  - id: R-24
+    title: TB Screening Date Must Not Be Earlier Than ART Start or Last Pickup Date
+    category: TB
+    severity: Data Quality
+    enabled: true
+    columns:
+      - current_art_status
+      - tb_screening_date
+      - art_start_date
+      - last_pickup_date
+    description: For Active/Active Restart clients, TB Screening Date should not be earlier
+      than ART Start Date or Last Pickup Date.
+    condition: current_art_status IN (Active, Active Restart) AND tb_screening_date < art_start_date
+    action: Flag Active/Active Restart client where TB Screening Date is earlier than ART start or last pickup
+
+  - id: R-25
+    title: TB Screening Type and TB Status Required When Screening Date Exists
+    category: TB
+    severity: Data Quality
+    enabled: true
+    columns:
+      - current_art_status
+      - tb_screening_date
+      - tb_screening_type
+      - tb_status
+    description: TB Screening Type and TB Status must not be blank when TB Screening Date is
+      present for Active/Active Restart clients.
+    condition: current_art_status IN (Active, Active Restart) AND tb_screening_date IS NOT NULL AND tb_screening_type IS NULL AND tb_status != 'Currently on TB treatment'
+    action: Flag Active/Active Restart clients missing TB Screening Type or TB Status when screening date exists
+
+  - id: R-26
+    title: TB Treatment Start Date Must Not Be Earlier Than Diagnostic Result Received Date
+    category: TB
+    severity: Data Quality
+    enabled: true
+    columns:
+      - current_art_status
+      - tb_treatment_start_date
+      - tb_diagnostic_result_received_date
+    description: TB Treatment Start Date should not be earlier than TB Diagnostic Result
+      Received Date for Active/Active Restart clients.
+    condition: current_art_status IN (Active, Active Restart) AND tb_treatment_start_date < tb_diagnostic_result_received_date
+    action: Flag Active/Active Restart client where TB treatment starts before diagnostic result received date
+
+  - id: R-27
+    title: TPT Completion Status Required When TPT Completion Date Exists
+    category: TB
+    severity: Data Quality
+    enabled: true
+    columns:
+      - current_art_status
+      - tpt_completion_date
+      - tpt_completion_status
+    description: TPT Completion Status must not be blank when TPT Completion Date is present
+      for Active/Active Restart clients.
+    condition: current_art_status IN (Active, Active Restart) AND tpt_completion_date IS NOT NULL AND tpt_completion_status IS NULL
+    action: Flag Active/Active Restart clients missing TPT Completion Status when completion date exists
+
+  - id: R-28
+    title: EAC Dates Must Not Be Earlier Than ART Start Date
+    category: Viral Load & EAC
+    severity: Data Quality
+    enabled: true
+    columns:
+      - current_art_status
+      - art_start_date
+      - eac_commencement_date
+      - eac_last_session_date
+      - extended_eac_completion_date
+      - post_eac_vl_sample_collection_date
+      - post_eac_vl_result_date
+    description: EAC-related dates should not be earlier than ART Start Date for Active/Active Restart clients.
+    condition: current_art_status IN (Active, Active Restart) AND any EAC date < art_start_date
+    action: Flag Active/Active Restart clients where any EAC date is earlier than ART Start Date
+
+  - id: R-29
+    title: Last EAC Session Date Must Not Be Earlier Than EAC Commencement Date
+    category: Viral Load & EAC
+    severity: Data Quality
+    enabled: true
+    columns:
+      - current_art_status
+      - eac_commencement_date
+      - eac_last_session_date
+    description: Date of Last EAC Session Completed should not be earlier than Date of
+      Commencement of EAC for Active/Active Restart clients.
+    condition: current_art_status IN (Active, Active Restart) AND eac_last_session_date < eac_commencement_date
+    action: Flag Active/Active Restart clients where last EAC session date is earlier than EAC commencement date
+
+  - id: R-30
+    title: DSD Dates Must Not Be Earlier Than ART Start Date
+    category: DSD
+    severity: Data Quality
+    enabled: true
+    columns:
+      - current_art_status
+      - art_start_date
+      - devolvement_date
+      - current_dsd_date
+      - dsd_return_date
+    description: Date of Devolvement, Date of Current DSD, and Date of Return of DSD Client
+      to Facility should not be earlier than ART Start Date for Active/Active Restart clients.
+    condition: current_art_status IN (Active, Active Restart) AND any DSD date < art_start_date
+    action: Flag Active/Active Restart clients where any DSD date is earlier than ART Start Date
+
+  - id: R-31
+    title: HIV-Positive HTS Client Not Enrolled in RADET
+    category: Linkage
+    severity: Service Gap
+    enabled: true
+    cross_sheet: true
+    columns:
+      - patient_id
+    description: Every patient on the HTS sheet who tested HIV Positive (finalHIVTestResult = Positive)
+      within the current Nigerian fiscal year (Oct 1 – Sep 30) must have a corresponding patient
+      record in the RADET sheet. A missing RADET record indicates a failure to link the newly
+      diagnosed client to treatment and care — a direct Service Gap.
+      This rule requires the HTS sheet to be present in the uploaded file; it is silently
+      skipped when only a RADET-only file is uploaded.
+    condition: HTS.finalHIVTestResult = 'Positive' AND HTS.dateOfHIVTesting IN current_fy AND HTS.patientId NOT IN RADET.patient_id
+    action: Flag HTS patient if their patientId is not found in RADET for HIV+ results in the current FY
+
+  - id: R-32
+    title: New ART Patient in RADET Missing HIV+ HTS Record
+    category: Linkage
+    severity: Service Gap
+    enabled: true
+    cross_sheet: true
+    columns:
+      - patient_id
+      - art_start_date
+      - entry_point
+    description: Every patient on the RADET sheet who started ART within the current Nigerian
+      fiscal year (Oct 1 – Sep 30) AND whose Care Entry Point is NOT a Transfer-in must have
+      a corresponding patient record in the HTS sheet with finalHIVTestResult = Positive and
+      dateOfHIVTesting within the current FY. A missing HTS record indicates the patient was
+      enrolled in ART without a documented HIV diagnosis — a direct Service Gap.
+      This rule requires the HTS sheet to be present in the uploaded file; it is silently
+      skipped when only a RADET-only file is uploaded.
+    condition: RADET.artStartDate IN current_fy AND RADET.careEntryPoint NOT ILIKE '%Transfer-in%' AND RADET.patientId NOT IN HTS[finalHIVTestResult='Positive' AND dateOfHIVTesting IN current_fy].patientId
+    action: Flag RADET patient if they started ART this FY (non-Transfer-in) but have no matching HIV+ HTS result in the current FY
