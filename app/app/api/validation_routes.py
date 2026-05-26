@@ -494,6 +494,7 @@ def get_violations_page(
     lga: str | None = Query(default=None),
     state: str | None = Query(default=None),
     facilities: str | None = Query(default=None),  # comma-separated list for state filter
+    severity: str | None = Query(default=None),
 ) -> ViolationsPageResponse:
     """Paginated violations.
     Checks _job_store first (fast, in-memory) then falls back to SQLite
@@ -533,6 +534,10 @@ def get_violations_page(
                     violations_df = violations_df[
                         violations_df["facility_name"].isin(fac_list)
                     ]
+            if severity:
+                violations_df = violations_df[
+                    violations_df["severity"].str.lower() == severity.lower()
+                ]
             records, total_pages, total_records = violations_df_to_records(
                 violations_df, page=page, page_size=page_size
             )
@@ -558,6 +563,7 @@ def get_violations_page(
             lga=lga,
             state=state,
             facilities=fac_list,
+            severity=severity,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Database error: {exc}")

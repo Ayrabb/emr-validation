@@ -227,6 +227,7 @@ class ErrorRepository:
         lga: Optional[str] = None,
         state: Optional[str] = None,
         facilities: Optional[list] = None,
+        severity: Optional[str] = None,
     ) -> dict:
         """Return a page of violations for a run, with optional filters.
         Returns: {total_records, total_pages, violations: list[dict]}
@@ -248,6 +249,8 @@ class ErrorRepository:
                 q = q.filter(FacilityError.state.ilike(state))
             if facilities:
                 q = q.filter(FacilityError.facility_name.in_(facilities))
+            if severity:
+                q = q.filter(FacilityError.severity.ilike(severity))
 
             total = q.count()
             total_pages = max(1, math.ceil(total / page_size))
