@@ -83,11 +83,16 @@ class BlobConnector:
 
     # ── Download ──────────────────────────────────────────────────────────────
 
+    _CHUNK_SIZE = 10 * 1_048_576   # 10 MB per range-request
+
     def download(self, for_date: date | None = None) -> bytes:
         """
         Download the RADET blob for for_date (defaults to today).
-        Returns raw bytes.  Retries up to settings.blob_download_retries times
-        with back-off on transient errors and ResourceModifiedError.
+
+        Uses chunked range-requests (10 MB each) so a transient stall only
+        retries the affected chunk rather than restarting the whole file.
+        Each chunk is retried up to settings.blob_download_retries times
+        with exponential back-off before the whole run is marked as failed.
         """
         from azure.core.exceptions import (
             HttpResponseError,
@@ -95,16 +100,23 @@ class BlobConnector:
             ResourceNotFoundError,
             ServiceRequestError,
         )
+        from http.client import IncompleteRead
+        try:
+            from requests.exceptions import (
+                ReadTimeout,
+                ConnectionError as RequestsConnectionError,
+            )
+            _net_errors = (IncompleteRead, ReadTimeout, RequestsConnectionError)
+        except ImportError:
+            _net_errors = (IncompleteRead,)
+
+        # All transient errors that warrant a retry
+        TRANSIENT = (ServiceRequestError, HttpResponseError, ResourceModifiedError) + _net_errors
 
         if for_date is None:
             for_date = date.today()
 
         blob_name = self.blob_path(for_date)
-        logger.info(
-            f"Downloading blob: container={self._container!r}  "
-            f"blob={blob_name!r}"
-        )
-
         service     = self._service_client()
         blob_client = (
             service
@@ -112,52 +124,91 @@ class BlobConnector:
             .get_blob_client(blob_name)
         )
 
-        backoff = (1, 3, 6)   # seconds between retries — matches DHIS2 pipeline
-        last_error: Exception = RuntimeError("No attempt made")
-
-        for attempt in range(1, self._max_retries + 1):
+        # ── Resolve blob size so we can issue range-requests ──────────────────
+        _props_backoff = (5, 15, 30)
+        _props_error: Exception = RuntimeError("No attempt made")
+        total_size: int | None = None
+        for _attempt in range(1, self._max_retries + 1):
             try:
-                data    = blob_client.download_blob(timeout=self._timeout).readall()
-                size_mb = len(data) / 1_048_576
-                logger.info(
-                    f"Blob downloaded: {blob_name!r}  "
-                    f"{size_mb:.1f} MB  (attempt {attempt})"
-                )
-                return data
-
+                total_size = blob_client.get_blob_properties(timeout=30).size
+                break
             except ResourceNotFoundError:
-                # Not transient — file genuinely missing for this date
                 raise RuntimeError(
                     f"Blob not found: {blob_name!r}\n"
                     f"Container      : {self._container!r}\n"
                     "Check that the combined RADET file has been uploaded for this date."
                 )
-
-            except ResourceModifiedError as exc:
-                # File is being replaced upstream — wait and retry
-                last_error = exc
-                delay = backoff[min(attempt - 1, len(backoff) - 1)]
-                logger.warning(
-                    f"Blob modified mid-download (attempt {attempt}/{self._max_retries}). "
-                    f"Retrying in {delay}s…"
-                )
-                time.sleep(delay)
-
-            except (ServiceRequestError, HttpResponseError) as exc:
-                last_error = exc
-                delay = backoff[min(attempt - 1, len(backoff) - 1)]
-                logger.warning(
-                    f"Transient blob error (attempt {attempt}/{self._max_retries}): "
-                    f"{exc}.  Retrying in {delay}s…"
-                )
-                time.sleep(delay)
-
             except Exception as exc:
-                raise RuntimeError(f"Unexpected blob error: {exc}") from exc
+                _props_error = exc
+                _delay = _props_backoff[min(_attempt - 1, len(_props_backoff) - 1)]
+                logger.warning(f"get_blob_properties failed (attempt {_attempt}/{self._max_retries}): {exc} — retrying in {_delay}s…")
+                time.sleep(_delay)
+        else:
+            raise RuntimeError(f"Could not read blob properties after {self._max_retries} attempts: {_props_error}")
+        assert total_size is not None
 
-        raise RuntimeError(
-            f"Blob download failed after {self._max_retries} attempts: {last_error}"
+        total_chunks = max(1, -(-total_size // self._CHUNK_SIZE))   # ceiling division
+        size_mb      = total_size / 1_048_576
+        logger.info(
+            f"Downloading blob: container={self._container!r}  blob={blob_name!r}  "
+            f"{size_mb:.1f} MB  ({total_chunks} chunks)"
         )
+
+        # ── Fetch each chunk with independent retry ───────────────────────────
+        backoff  = (5, 15, 30)   # seconds between retry attempts
+        chunks: list[bytes] = []
+        offset = 0
+
+        for chunk_idx in range(1, total_chunks + 1):
+            length     = min(self._CHUNK_SIZE, total_size - offset)
+            last_error: Exception = RuntimeError("No attempt made")
+
+            for attempt in range(1, self._max_retries + 1):
+                try:
+                    data = blob_client.download_blob(
+                        offset=offset, length=length, timeout=self._timeout
+                    ).readall()
+                    chunks.append(data)
+                    logger.info(
+                        f"Chunk {chunk_idx}/{total_chunks} OK  "
+                        f"({(offset + length) / 1_048_576:.1f}/{size_mb:.1f} MB)"
+                    )
+                    break   # chunk succeeded — move to the next one
+
+                except ResourceNotFoundError:
+                    raise RuntimeError(
+                        f"Blob not found: {blob_name!r}\n"
+                        f"Container      : {self._container!r}\n"
+                        "Check that the combined RADET file has been uploaded for this date."
+                    )
+
+                except TRANSIENT as exc:
+                    last_error = exc
+                    delay      = backoff[min(attempt - 1, len(backoff) - 1)]
+                    logger.warning(
+                        f"Chunk {chunk_idx}/{total_chunks} transient error "
+                        f"(attempt {attempt}/{self._max_retries}): {exc}  "
+                        f"— retrying in {delay}s…"
+                    )
+                    time.sleep(delay)
+
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"Unexpected error on chunk {chunk_idx}: {exc}"
+                    ) from exc
+
+            else:
+                # All retries for this chunk exhausted
+                raise RuntimeError(
+                    f"Chunk {chunk_idx}/{total_chunks} failed after "
+                    f"{self._max_retries} attempts: {last_error}"
+                )
+
+            offset += length
+
+        data = b"".join(chunks)
+        logger.info(f"Blob downloaded: {blob_name!r}  {len(data) / 1_048_576:.1f} MB")
+        return data
 
 
 # Module-level singleton — reused across all scheduled runs

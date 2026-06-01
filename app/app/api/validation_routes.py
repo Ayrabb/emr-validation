@@ -216,6 +216,27 @@ def health_check() -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# POST /runs/trigger  — manually kick off today's pipeline run
+# Useful when a scheduled run has errored and you want to retry immediately
+# without waiting for the next slot.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.post("/runs/trigger", tags=["Runs"])
+def trigger_run(background_tasks: BackgroundTasks, slot: str = "18:00"):
+    """Trigger today's validation pipeline immediately in the background.
+    slot: which schedule slot to file the run under (default "18:00").
+    Returns immediately — poll GET /runs to see when it completes.
+    """
+    from app.scheduler.pipeline import run_pipeline
+    from app.db.repository import SLOTS
+    if slot not in SLOTS:
+        raise HTTPException(status_code=400, detail=f"slot must be one of {SLOTS}")
+    background_tasks.add_task(run_pipeline, schedule_slot=slot)
+    logger.info(f"POST /runs/trigger — pipeline queued  slot={slot}")
+    return {"queued": True, "schedule_slot": slot, "message": "Pipeline started — poll GET /runs for result."}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # GET /runs  — BayCentral home page data source
 # Returns the latest completed run per schedule slot (at most 3 rows).
 # When a new run for a slot completes it overwrites the previous one here.
