@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     database_path:  str = r"C:\EMRValidation\data\emr_validation.db"
     retention_days: int = 90
 
+    # ── Local override — skips Azure Blob (for local dev/testing) ───────────────
+    # Set to an absolute path of a local RADET .xlsx file.
+    # When set, BlobConnector.download() reads this file instead of hitting Azure.
+    # Leave empty (or unset) in production.
+    local_radet_file: str = ""
+
     # ── Azure Blob — auth (connection string preferred) ───────────────────────
     # Mode 1: full connection string
     azure_storage_connection_string: str = ""

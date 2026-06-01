@@ -89,11 +89,24 @@ class BlobConnector:
         """
         Download the RADET blob for for_date (defaults to today).
 
-        Uses chunked range-requests (10 MB each) so a transient stall only
-        retries the affected chunk rather than restarting the whole file.
+        If settings.local_radet_file is set, reads from that local path instead
+        of Azure Blob — useful for local dev/testing without blob access.
+
+        Otherwise uses chunked range-requests (10 MB each) so a transient stall
+        only retries the affected chunk rather than restarting the whole file.
         Each chunk is retried up to settings.blob_download_retries times
         with exponential back-off before the whole run is marked as failed.
         """
+        # ── Local file override (dev/test only) ───────────────────────────────
+        if settings.local_radet_file:
+            from pathlib import Path
+            p = Path(settings.local_radet_file)
+            if not p.exists():
+                raise RuntimeError(f"LOCAL_RADET_FILE not found: {p}")
+            data = p.read_bytes()
+            logger.info(f"[LOCAL] Using local RADET file: {p}  ({len(data) / 1_048_576:.1f} MB)")
+            return data
+
         from azure.core.exceptions import (
             HttpResponseError,
             ResourceModifiedError,
